@@ -1,0 +1,417 @@
+{% extends "base.html" %}
+
+{% block title %}Comparar Agentes - Fluxi.IA{% endblock %}
+
+{% block content %}
+<!-- Page Header -->
+<div style="margin-bottom: 2rem;">
+    <nav class="breadcrumb" aria-label="breadcrumbs" style="margin-bottom: 0.75rem !important;">
+        <ul style="margin-bottom: 0 !important;">
+            <li><a href="/" style="color: #6b7280;"><i class="fas fa-home"></i> Dashboard</a></li>
+            <li class="is-active"><a style="color: #C75B9B;">Comparar Agentes</a></li>
+        </ul>
+    </nav>
+    <h1 class="title is-3" style="margin-bottom: 0.75rem !important; line-height: 1.2;">
+        <i class="fas fa-balance-scale" style="color: #5B4E9B;"></i> Comparar Agentes
+    </h1>
+    <p class="subtitle is-6" style="color: #6b7280; margin-bottom: 0 !important; line-height: 1.4;">
+        Compare performance entre dois agentes para escolher o melhor para sua necessidade
+    </p>
+</div>
+
+<div class="columns">
+    <!-- Painel de Configuração -->
+    <div class="column is-one-third">
+        <div class="box">
+            <h2 class="title is-5" style="margin-bottom: 1.5rem; color: #1a1d2e;">
+                <i class="fas fa-cogs"></i> Configuração
+            </h2>
+
+            <!-- Primeiro Agente -->
+            <div class="field">
+                <label class="label">Primeiro Agente</label>
+                <div class="control">
+                    <div class="select is-fullwidth">
+                        <select id="agente1Select">
+                            <option value="">Selecione o primeiro agente...</option>
+                            {% for sessao in sessoes %}
+                                <optgroup label="{{ sessao.nome }}">
+                                    {% for agente in agentes %}
+                                        {% if agente.sessao_id == sessao.id %}
+                                        <option value="{{ agente.id }}">{{ agente.nome }} ({{ agente.codigo }})</option>
+                                        {% endif %}
+                                    {% endfor %}
+                                </optgroup>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Segundo Agente -->
+            <div class="field">
+                <label class="label">Segundo Agente</label>
+                <div class="control">
+                    <div class="select is-fullwidth">
+                        <select id="agente2Select">
+                            <option value="">Selecione o segundo agente...</option>
+                            {% for sessao in sessoes %}
+                                <optgroup label="{{ sessao.nome }}">
+                                    {% for agente in agentes %}
+                                        {% if agente.sessao_id == sessao.id %}
+                                        <option value="{{ agente.id }}">{{ agente.nome }} ({{ agente.codigo }})</option>
+                                        {% endif %}
+                                    {% endfor %}
+                                </optgroup>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Mensagem de Teste -->
+            <div class="field">
+                <label class="label">Mensagem de Teste</label>
+                <div class="control">
+                    <textarea class="textarea" id="mensagemTeste" rows="4" placeholder="Digite uma mensagem para testar ambos os agentes...
+
+Exemplos:
+- Como posso ajudar com seu pedido?
+- Qual é o status do meu produto?
+- Preciso de suporte técnico urgente!
+- Gostaria de cancelar minha assinatura"></textarea>
+                </div>
+                <p class="help">Esta mensagem será enviada para ambos os agentes simultaneamente.</p>
+            </div>
+
+            <!-- Botão Comparar -->
+            <div class="field">
+                <div class="control">
+                    <button class="button is-primary is-fullwidth" id="compararBtn" onclick="executarComparacao()" disabled>
+                        <span class="icon"><i class="fas fa-balance-scale"></i></span>
+                        <span>Comparar Agentes</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Resultados da Comparação -->
+    <div class="column is-two-thirds">
+        <div id="resultadosContainer" style="display: none;">
+            <!-- Resultados serão inseridos aqui via JavaScript -->
+        </div>
+
+        <div id="loadingContainer" style="display: none;">
+            <div class="box has-text-centered" style="padding: 3rem;">
+                <div class="block">
+                    <i class="fas fa-spinner fa-spin" style="font-size: 3rem; color: #C75B9B;"></i>
+                </div>
+                <div class="block">
+                    <h3 class="title is-4">Executando comparação...</h3>
+                    <p class="subtitle">Testando ambos os agentes simultaneamente</p>
+                </div>
+            </div>
+        </div>
+
+        <div id="emptyState">
+            <div class="box has-text-centered" style="padding: 3rem;">
+                <div class="block">
+                    <i class="fas fa-balance-scale" style="font-size: 4rem; color: #d1d5db;"></i>
+                </div>
+                <div class="block">
+                    <h3 class="title is-4" style="color: #6b7280;">Comparação de Agentes</h3>
+                    <p class="subtitle" style="color: #9ca3af;">
+                        Selecione dois agentes e uma mensagem de teste para comparar suas performances
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Histórico de Comparações -->
+<div class="box" style="margin-top: 2rem;">
+    <h2 class="title is-5" style="margin-bottom: 1.5rem; color: #1a1d2e;">
+        <i class="fas fa-history"></i> Histórico de Comparações
+    </h2>
+
+    <div id="historicoContainer">
+        <div class="has-text-centered" style="padding: 2rem;">
+            <i class="fas fa-clock" style="font-size: 2rem; color: #d1d5db; margin-bottom: 1rem;"></i>
+            <p style="color: #6b7280;">Nenhuma comparação executada ainda.</p>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Estado da aplicação
+let comparacoesHistorico = [];
+
+// Validar seleção de agentes
+function validarSelecao() {
+    const agente1 = document.getElementById('agente1Select').value;
+    const agente2 = document.getElementById('agente2Select').value;
+    const mensagem = document.getElementById('mensagemTeste').value.trim();
+    const compararBtn = document.getElementById('compararBtn');
+
+    const valido = agente1 && agente2 && agente1 !== agente2 && mensagem;
+    compararBtn.disabled = !valido;
+
+    if (agente1 === agente2 && agente1 && agente2) {
+        alert('Selecione dois agentes diferentes!');
+        document.getElementById('agente2Select').value = '';
+    }
+}
+
+// Executar comparação
+async function executarComparacao() {
+    const agente1Id = document.getElementById('agente1Select').value;
+    const agente2Id = document.getElementById('agente2Select').value;
+    const mensagemTeste = document.getElementById('mensagemTeste').value.trim();
+
+    if (!agente1Id || !agente2Id || !mensagemTeste) {
+        alert('Preencha todos os campos!');
+        return;
+    }
+
+    if (agente1Id === agente2Id) {
+        alert('Selecione dois agentes diferentes!');
+        return;
+    }
+
+    // Mostrar loading
+    document.getElementById('emptyState').style.display = 'none';
+    document.getElementById('resultadosContainer').style.display = 'none';
+    document.getElementById('loadingContainer').style.display = 'block';
+
+    const compararBtn = document.getElementById('compararBtn');
+    compararBtn.disabled = true;
+    compararBtn.innerHTML = '<span class="icon"><i class="fas fa-spinner fa-spin"></i></span><span>Comparando...</span>';
+
+    try {
+        const params = new URLSearchParams({
+            mensagem_teste: mensagemTeste
+        });
+
+        const response = await fetch(`/api/agentes/comparar/${agente1Id}/${agente2Id}?${params}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            mostrarResultadoComparacao(data);
+            adicionarAoHistorico(data);
+        } else {
+            const error = await response.json();
+            throw new Error(error.detail || 'Erro desconhecido');
+        }
+
+    } catch (error) {
+        alert(`❌ Erro na comparação: ${error.message}`);
+        console.error('Erro:', error);
+    } finally {
+        // Restaurar botão
+        compararBtn.disabled = false;
+        compararBtn.innerHTML = '<span class="icon"><i class="fas fa-balance-scale"></i></span><span>Comparar Agentes</span>';
+
+        // Esconder loading
+        document.getElementById('loadingContainer').style.display = 'none';
+    }
+}
+
+// Mostrar resultado da comparação
+function mostrarResultadoComparacao(data) {
+    const container = document.getElementById('resultadosContainer');
+
+    const agente1 = data.agente_1;
+    const agente2 = data.agente_2;
+    const comparacao = data.comparacao;
+    const recomendacao = data.recomendacao;
+
+    const html = `
+        <div class="box" style="margin-bottom: 1.5rem;">
+            <h3 class="title is-4 has-text-centered" style="margin-bottom: 2rem; color: #1a1d2e;">
+                📊 Resultado da Comparação
+            </h3>
+
+            <!-- Recomendação -->
+            <div class="notification is-info is-light" style="margin-bottom: 2rem;">
+                <div class="content">
+                    <h4 class="title is-5" style="margin-bottom: 0.5rem;">
+                        <i class="fas fa-lightbulb"></i> Recomendação
+                    </h4>
+                    <p style="font-size: 1.1rem; font-weight: 500;">${recomendacao}</p>
+                </div>
+            </div>
+
+            <div class="columns">
+                <!-- Agente 1 -->
+                <div class="column">
+                    <div class="card" style="height: 100%;">
+                        <header class="card-header" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white;">
+                            <p class="card-header-title" style="color: white;">
+                                <i class="fas fa-robot"></i> ${agente1.nome}
+                            </p>
+                        </header>
+                        <div class="card-content">
+                            <div class="content">
+                                <div class="tags has-addons" style="margin-bottom: 1rem;">
+                                    <span class="tag ${comparacao.teste_1.sucesso ? 'is-success' : 'is-danger'}">
+                                        ${comparacao.teste_1.sucesso ? 'Sucesso' : 'Erro'}
+                                    </span>
+                                    <span class="tag is-info">
+                                        ${comparacao.teste_1.tempo_ms}ms
+                                    </span>
+                                    <span class="tag is-light">
+                                        ${comparacao.teste_1.tokens} tokens
+                                    </span>
+                                </div>
+
+                                <strong>Resposta:</strong>
+                                <div style="background: #f9fafb; padding: 1rem; border-radius: 6px; margin-top: 0.5rem; font-size: 0.9rem; max-height: 200px; overflow-y: auto;">
+                                    ${comparacao.teste_1.resposta}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- VS -->
+                <div class="column is-narrow" style="display: flex; align-items: center; justify-content: center;">
+                    <div style="font-size: 2rem; color: #C75B9B; font-weight: bold;">VS</div>
+                </div>
+
+                <!-- Agente 2 -->
+                <div class="column">
+                    <div class="card" style="height: 100%;">
+                        <header class="card-header" style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: white;">
+                            <p class="card-header-title" style="color: white;">
+                                <i class="fas fa-robot"></i> ${agente2.nome}
+                            </p>
+                        </header>
+                        <div class="card-content">
+                            <div class="content">
+                                <div class="tags has-addons" style="margin-bottom: 1rem;">
+                                    <span class="tag ${comparacao.teste_2.sucesso ? 'is-success' : 'is-danger'}">
+                                        ${comparacao.teste_2.sucesso ? 'Sucesso' : 'Erro'}
+                                    </span>
+                                    <span class="tag is-info">
+                                        ${comparacao.teste_2.tempo_ms}ms
+                                    </span>
+                                    <span class="tag is-light">
+                                        ${comparacao.teste_2.tokens} tokens
+                                    </span>
+                                </div>
+
+                                <strong>Resposta:</strong>
+                                <div style="background: #f9fafb; padding: 1rem; border-radius: 6px; margin-top: 0.5rem; font-size: 0.9rem; max-height: 200px; overflow-y: auto;">
+                                    ${comparacao.teste_2.resposta}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Estatísticas -->
+            <div class="box" style="margin-top: 1.5rem; background: #f8f9fc;">
+                <h4 class="title is-5" style="margin-bottom: 1rem;">📈 Estatísticas da Comparação</h4>
+                <div class="columns">
+                    <div class="column">
+                        <div class="has-text-centered">
+                            <div style="font-size: 1.5rem; font-weight: bold; color: #10b981;">
+                                ${comparacao.teste_1.tempo_ms}ms
+                            </div>
+                            <div style="color: #6b7280;">Tempo ${agente1.nome}</div>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="has-text-centered">
+                            <div style="font-size: 1.5rem; font-weight: bold; color: #8b5cf6;">
+                                ${comparacao.teste_2.tempo_ms}ms
+                            </div>
+                            <div style="color: #6b7280;">Tempo ${agente2.nome}</div>
+                        </div>
+                    </div>
+                    <div class="column">
+                        <div class="has-text-centered">
+                            <div style="font-size: 1.5rem; font-weight: bold; color: ${comparacao.teste_1.tempo_ms <= comparacao.teste_2.tempo_ms ? '#10b981' : '#8b5cf6'};">
+                                ${Math.abs(comparacao.teste_1.tempo_ms - comparacao.teste_2.tempo_ms)}ms
+                            </div>
+                            <div style="color: #6b7280;">Diferença</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    container.innerHTML = html;
+    container.style.display = 'block';
+}
+
+// Adicionar ao histórico
+function adicionarAoHistorico(data) {
+    comparacoesHistorico.unshift({
+        ...data,
+        timestamp: new Date().toLocaleString()
+    });
+
+    atualizarHistorico();
+}
+
+// Atualizar histórico
+function atualizarHistorico() {
+    const container = document.getElementById('historicoContainer');
+
+    if (comparacoesHistorico.length === 0) {
+        container.innerHTML = `
+            <div class="has-text-centered" style="padding: 2rem;">
+                <i class="fas fa-clock" style="font-size: 2rem; color: #d1d5db; margin-bottom: 1rem;"></i>
+                <p style="color: #6b7280;">Nenhuma comparação executada ainda.</p>
+            </div>
+        `;
+        return;
+    }
+
+    const html = comparacoesHistorico.map((comp, index) => `
+        <div class="box" style="margin-bottom: 1rem;">
+            <div class="level">
+                <div class="level-left">
+                    <div>
+                        <strong>${comp.agente_1.nome} vs ${comp.agente_2.nome}</strong>
+                        <br>
+                        <small class="has-text-grey">${comp.timestamp}</small>
+                    </div>
+                </div>
+                <div class="level-right">
+                    <span class="tag is-info">${comp.comparacao.teste_1.tempo_ms + comp.comparacao.teste_2.tempo_ms}ms total</span>
+                </div>
+            </div>
+            <div style="margin-top: 0.75rem;">
+                <strong>Recomendação:</strong> ${comp.recomendacao}
+            </div>
+            <div style="margin-top: 0.5rem;">
+                <strong>Mensagem de teste:</strong> ${comp.comparacao.mensagem_teste.substring(0, 100)}${comp.comparacao.mensagem_teste.length > 100 ? '...' : ''}
+            </div>
+        </div>
+    `).join('');
+
+    container.innerHTML = html;
+}
+
+// Event listeners
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('agente1Select').addEventListener('change', validarSelecao);
+    document.getElementById('agente2Select').addEventListener('change', validarSelecao);
+    document.getElementById('mensagemTeste').addEventListener('input', validarSelecao);
+});
+</script>
+{% endblock %}

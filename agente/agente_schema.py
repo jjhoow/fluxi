@@ -71,3 +71,41 @@ class AgenteFerramentaAssociar(BaseModel):
 class AgenteFerramentasAtualizar(BaseModel):
     """Schema para atualizar ferramentas de um agente."""
     ferramentas: List[int] = Field(..., description="Lista de IDs de ferramentas (máximo 20)")
+
+
+class AgenteTesteBase(BaseModel):
+    """Schema base para teste de agente."""
+    agente_id: Optional[int] = Field(None, description="ID do agente testado")
+    sessao_id: int = Field(..., description="ID da sessão")
+    prompt_testado: str = Field(..., description="Prompt que foi testado")
+    mensagem_teste: str = Field(..., description="Mensagem de teste enviada")
+    resposta_gerada: Optional[str] = Field(None, description="Resposta gerada pelo LLM")
+    modelo_usado: Optional[str] = Field(None, description="Modelo LLM utilizado")
+    tempo_resposta_ms: Optional[float] = Field(None, description="Tempo de resposta em ms")
+    tokens_usados: Optional[int] = Field(None, description="Tokens utilizados")
+    avaliacao: Optional[int] = Field(None, ge=1, le=5, description="Avaliação 1-5 estrelas")
+    feedback: Optional[str] = Field(None, description="Feedback do usuário")
+    sucesso: bool = Field(default=True, description="Se o teste foi bem-sucedido")
+    erro_mensagem: Optional[str] = Field(None, description="Mensagem de erro se houver")
+
+
+class AgenteTesteCriar(AgenteTesteBase):
+    """Schema para criar teste de agente."""
+    pass
+
+
+class AgenteTesteResposta(AgenteTesteBase):
+    """Schema de resposta com dados completos."""
+    id: int
+    criado_em: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AgenteComparacaoResposta(BaseModel):
+    """Schema para resposta de comparação entre agentes."""
+    agente_1: dict = Field(..., description="Dados do primeiro agente")
+    agente_2: dict = Field(..., description="Dados do segundo agente")
+    comparacao: dict = Field(..., description="Dados de comparação")
+    recomendacao: str = Field(..., description="Recomendação baseada na análise")
