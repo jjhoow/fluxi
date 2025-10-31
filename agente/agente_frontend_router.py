@@ -300,3 +300,17 @@ def ativar_agente(agente_id: int, db: Session = Depends(get_db)):
             SessaoService.atualizar(db, sessao.id, SessaoAtualizar(agente_ativo_id=agente_id))
         return RedirectResponse(url=f"/agentes/sessao/{agente.sessao_id}", status_code=303)
     return RedirectResponse(url="/sessoes", status_code=303)
+
+
+@router.get("/comparar-agentes", response_class=HTMLResponse)
+def pagina_comparar_agentes(request: Request, db: Session = Depends(get_db)):
+    """Página para comparar agentes."""
+    sessoes = SessaoService.listar_todas(db, apenas_ativas=True)
+    agentes = AgenteService.listar_todos(db)
+
+    return templates.TemplateResponse("comparar-agentes.html", {
+        "request": request,
+        "sessoes": sessoes,
+        "agentes": agentes,
+        "titulo": "Comparar Agentes"
+    })

@@ -632,3 +632,257 @@ class AgenteService:
             import traceback
             traceback.print_exc()
             raise ValueError(f"Erro ao processar com LLM: {str(e)}")
+
+    @staticmethod
+    async def testar_prompt(db: Session, agente_id: Optional[int], sessao_id: int, prompt_personalizado: str, mensagem_teste: str):
+        """Testa um prompt personalizado antes de aplicar ao agente."""
+        from agente.agente_model import AgenteTeste, Agente
+        from agente.agente_schema import AgenteTesteCriar
+        import time
+
+        # Se tem agente_id, usar configurações do agente
+        if agente_id:
+            agente = AgenteService.obter_por_id(db, agente_id)
+            if not agente:
+                raise ValueError("Agente não encontrado")
+        else:
+            agente = None
+
+        # Garantir sessao_id válido
+        if sessao_id is None:
+            if agente is not None:
+                sessao_id = agente.sessao_id
+            else:
+                raise ValueError("sessao_id é obrigatório quando nenhum agente é informado")
+
+        # Construir prompt completo (usar o personalizado ou do agente)
+        if prompt_personalizado.strip():
+            prompt_completo = prompt_personalizado
+        elif agente:
+            prompt_completo = AgenteService.construir_system_prompt(agente)
+        else:
+            raise ValueError("É necessário fornecer um prompt personalizado ou ID de agente")
+
+        # Testar com LLM
+        inicio = time.time()
+
+        try:
+            # Usar integração LLM para testar
+            from llm_providers.llm_integration_service import LLMIntegrationService
+
+            # Configurar requisição
+            configuracao = None
+            if agente:
+                configuracao = {
+                    "temperatura": float(agente.temperatura or "0.7"),
+                    "max_tokens": int(agente.max_tokens or "2000"),
+                    "top_p": float(agente.top_p or "1.0"),
+                    "stop": None
+                }
+
+            modelo = agente.modelo_llm if agente and agente.modelo_llm else "google/gemini-2.0-flash-001"
+
+            # Montar mensagens no formato OpenAI
+            messages = [
+                {"role": "system", "content": prompt_completo},
+                {"role": "user", "content": mensagem_teste}
+            ]
+
+            # Chamar integração LLM unificada
+            resultado_llm = await LLMIntegrationService.processar_mensagem_com_llm(
+                db=db,
+                messages=messages,
+                modelo=modelo,
+                agente_id=agente.id if agente else None,
+                temperatura=(configuracao or {}).get("temperatura", 0.7),
+                max_tokens=(configuracao or {}).get("max_tokens", 2000),
+                top_p=(configuracao or {}).get("top_p", 1.0),
+                tools=None,
+                stream=False
+            )
+
+            tempo_ms = int((time.time() - inicio) * 1000)
+
+            # Normalizar campos retornados
+            conteudo_resp = resultado_llm.get("conteudo", "")
+            modelo_resp = resultado_llm.get("modelo", modelo)
+            tokens_in = resultado_llm.get("tokens_input") or 0
+            tokens_out = resultado_llm.get("tokens_output") or 0
+            tokens_total = (tokens_in or 0) + (tokens_out or 0)
+
+            # Salvar teste
+            teste_data = AgenteTesteCriar(
+                agente_id=agente_id,
+                sessao_id=sessao_id,
+                prompt_testado=prompt_completo,
+                mensagem_teste=mensagem_teste,
+                resposta_gerada=conteudo_resp,
+                modelo_usado=modelo_resp,
+                tempo_resposta_ms=tempo_ms,
+                tokens_usados=tokens_total,
+                sucesso=True
+            )
+
+            teste = AgenteTeste(**teste_data.model_dump())
+            db.add(teste)
+            db.commit()
+            db.refresh(teste)
+
+            return {
+                "teste_id": teste.id,
+                "resposta": conteudo_resp,
+                "modelo": modelo_resp,
+                "tempo_ms": tempo_ms,
+                "tokens": tokens_total,
+                "sucesso": True
+            }
+
+        except Exception as e:
+            tempo_ms = int((time.time() - inicio) * 1000)
+
+            # Salvar teste com erro
+            teste_data = AgenteTesteCriar(
+                agente_id=agente_id,
+                sessao_id=sessao_id,
+                prompt_testado=prompt_completo,
+                mensagem_teste=mensagem_teste,
+                sucesso=False,
+                erro_mensagem=str(e),
+                tempo_resposta_ms=tempo_ms
+            )
+
+            teste = AgenteTeste(**teste_data.model_dump())
+            db.add(teste)
+            db.commit()
+            db.refresh(teste)
+
+            raise ValueError(f"Erro no teste: {str(e)}")
+
+    @staticmethod
+    def comparar_agentes(db: Session, agente_id_1: int, agente_id_2: int, mensagem_teste: str):
+        """Compara performance entre dois agentes."""
+        import asyncio
+
+        async def testar_agente(agente_id):
+            try:
+                return await AgenteService.testar_prompt(
+                    db=db,
+                    agente_id=agente_id,
+                    sessao_id=None,  # Será definido dentro do método
+                    prompt_personalizado="",
+                    mensagem_teste=mensagem_teste
+                )
+            except Exception as e:
+                return {"erro": str(e)}
+
+        # Executar testes em paralelo
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        try:
+            resultado_1, resultado_2 = loop.run_until_complete(
+                asyncio.gather(
+                    testar_agente(agente_id_1),
+                    testar_agente(agente_id_2)
+                )
+            )
+        finally:
+            loop.close()
+
+        # Obter dados dos agentes
+        agente_1 = AgenteService.obter_por_id(db, agente_id_1)
+        agente_2 = AgenteService.obter_por_id(db, agente_id_2)
+
+        if not agente_1 or not agente_2:
+            raise ValueError("Um ou ambos agentes não encontrados")
+
+        # Analisar comparação
+        comparacao = {
+            "mensagem_teste": mensagem_teste,
+            "teste_1": {
+                "agente": agente_1.nome,
+                "sucesso": not resultado_1.get("erro"),
+                "tempo_ms": resultado_1.get("tempo_ms"),
+                "tokens": resultado_1.get("tokens"),
+                "resposta": resultado_1.get("resposta", resultado_1.get("erro"))
+            },
+            "teste_2": {
+                "agente": agente_2.nome,
+                "sucesso": not resultado_2.get("erro"),
+                "tempo_ms": resultado_2.get("tempo_ms"),
+                "tokens": resultado_2.get("tokens"),
+                "resposta": resultado_2.get("resposta", resultado_2.get("erro"))
+            }
+        }
+
+        # Gerar recomendação
+        if comparacao["teste_1"]["sucesso"] and not comparacao["teste_2"]["sucesso"]:
+            recomendacao = f"Recomendo {agente_1.nome} - funcionou corretamente"
+        elif comparacao["teste_2"]["sucesso"] and not comparacao["teste_1"]["sucesso"]:
+            recomendacao = f"Recomendo {agente_2.nome} - funcionou corretamente"
+        elif comparacao["teste_1"]["sucesso"] and comparacao["teste_2"]["sucesso"]:
+            tempo_1 = comparacao["teste_1"]["tempo_ms"] or float('inf')
+            tempo_2 = comparacao["teste_2"]["tempo_ms"] or float('inf')
+            tokens_1 = comparacao["teste_1"]["tokens"] or float('inf')
+            tokens_2 = comparacao["teste_2"]["tokens"] or float('inf')
+
+            if tempo_1 < tempo_2 and tokens_1 <= tokens_2:
+                recomendacao = f"Recomendo {agente_1.nome} - mais rápido e eficiente"
+            elif tempo_2 < tempo_1 and tokens_2 <= tokens_1:
+                recomendacao = f"Recomendo {agente_2.nome} - mais rápido e eficiente"
+            else:
+                recomendacao = "Ambos funcionaram bem - escolha baseado no estilo de resposta"
+        else:
+            recomendacao = "Ambos falharam - revise as configurações dos agentes"
+
+        return {
+            "agente_1": {
+                "id": agente_1.id,
+                "nome": agente_1.nome,
+                "categoria": "personalizado"
+            },
+            "agente_2": {
+                "id": agente_2.id,
+                "nome": agente_2.nome,
+                "categoria": "personalizado"
+            },
+            "comparacao": comparacao,
+            "recomendacao": recomendacao
+        }
+
+    @staticmethod
+    def obter_estatisticas_agente(db: Session, agente_id: int):
+        """Obtém estatísticas de performance de um agente."""
+        from agente.agente_model import AgenteTeste
+
+        testes = db.query(AgenteTeste).filter(AgenteTeste.agente_id == agente_id).all()
+
+        if not testes:
+            return {
+                "total_testes": 0,
+                "taxa_sucesso": 0,
+                "tempo_medio_ms": 0,
+                "tokens_medios": 0,
+                "avaliacao_media": 0
+            }
+
+        total_testes = len(testes)
+        testes_sucesso = len([t for t in testes if t.sucesso])
+        taxa_sucesso = (testes_sucesso / total_testes) * 100
+
+        tempos = [t.tempo_resposta_ms for t in testes if t.tempo_resposta_ms]
+        tempo_medio = sum(tempos) / len(tempos) if tempos else 0
+
+        tokens = [t.tokens_usados for t in testes if t.tokens_usados]
+        tokens_medios = sum(tokens) / len(tokens) if tokens else 0
+
+        avaliacoes = [t.avaliacao for t in testes if t.avaliacao]
+        avaliacao_media = sum(avaliacoes) / len(avaliacoes) if avaliacoes else 0
+
+        return {
+            "total_testes": total_testes,
+            "taxa_sucesso": round(taxa_sucesso, 1),
+            "tempo_medio_ms": round(tempo_medio, 0),
+            "tokens_medios": round(tokens_medios, 0),
+            "avaliacao_media": round(avaliacao_media, 1)
+        }

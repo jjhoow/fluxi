@@ -127,3 +127,98 @@ def vincular_treinamento_agente(
             return {"mensagem": "Treinamento desvinculado com sucesso"}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{agente_id}/testar-prompt")
+async def testar_prompt_agente(
+    agente_id: int,
+    mensagem_teste: str = Query(..., description="Mensagem de teste para o prompt"),
+    prompt_personalizado: Optional[str] = Query("", description="Prompt personalizado (opcional)"),
+    db: Session = Depends(get_db)
+):
+    """Testa um prompt antes de aplicar ao agente."""
+    try:
+        # Obter sessão do agente
+        agente = AgenteService.obter_por_id(db, agente_id)
+        if not agente:
+            raise HTTPException(status_code=404, detail="Agente não encontrado")
+
+        resultado = await AgenteService.testar_prompt(
+            db=db,
+            agente_id=agente_id,
+            sessao_id=agente.sessao_id,
+            prompt_personalizado=prompt_personalizado,
+            mensagem_teste=mensagem_teste
+        )
+
+        return {
+            "teste_id": resultado["teste_id"],
+            "resposta": resultado["resposta"],
+            "modelo": resultado["modelo"],
+            "tempo_ms": resultado["tempo_ms"],
+            "tokens": resultado["tokens"],
+            "sucesso": resultado["sucesso"]
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/testar-prompt-personalizado")
+async def testar_prompt_personalizado(
+    prompt_personalizado: str = Query(..., description="Prompt personalizado para testar"),
+    mensagem_teste: str = Query(..., description="Mensagem de teste"),
+    sessao_id: int = Query(..., description="ID da sessão"),
+    db: Session = Depends(get_db)
+):
+    """Testa um prompt personalizado sem agente específico."""
+    try:
+        resultado = await AgenteService.testar_prompt(
+            db=db,
+            agente_id=None,
+            sessao_id=sessao_id,
+            prompt_personalizado=prompt_personalizado,
+            mensagem_teste=mensagem_teste
+        )
+
+        return {
+            "teste_id": resultado["teste_id"],
+            "resposta": resultado["resposta"],
+            "modelo": resultado["modelo"],
+            "tempo_ms": resultado["tempo_ms"],
+            "tokens": resultado["tokens"],
+            "sucesso": resultado["sucesso"]
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/comparar/{agente_id_1}/{agente_id_2}")
+def comparar_agentes(
+    agente_id_1: int,
+    agente_id_2: int,
+    mensagem_teste: str = Query(..., description="Mensagem para testar ambos os agentes"),
+    db: Session = Depends(get_db)
+):
+    """Compara performance entre dois agentes."""
+    try:
+        resultado = AgenteService.comparar_agentes(db, agente_id_1, agente_id_2, mensagem_teste)
+        return resultado
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{agente_id}/estatisticas")
+def obter_estatisticas_agente(agente_id: int, db: Session = Depends(get_db)):
+    """Obtém estatísticas de performance de um agente."""
+    try:
+        agente = AgenteService.obter_por_id(db, agente_id)
+        if not agente:
+            raise HTTPException(status_code=404, detail="Agente não encontrado")
+
+        estatisticas = AgenteService.obter_estatisticas_agente(db, agente_id)
+        return estatisticas
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
